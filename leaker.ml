@@ -12,21 +12,28 @@ let request =
    \r\n"
 
 let rec loop () =
-  print_char '|';
   Tcp.with_connection (Tcp.to_host_and_port host port) (fun _ r w ->
       let net_to_ssl = Reader.pipe r in
       let ssl_to_net = Writer.pipe w in
       let app_to_ssl, app_wr = Pipe.create () in
       let app_rd, ssl_to_app = Pipe.create () in
       Ssl.client ~app_to_ssl ~ssl_to_app ~net_to_ssl ~ssl_to_net ()
-      >>= function
-      | Error err -> Error.raise err
-      | Ok conn ->
-        Pipe.write_without_pushback app_wr request;
-        Pipe.close app_wr;
-        Pipe.drain_and_count app_rd >>= (fun c ->
-            assert (c > 0);
-            Pipe.closed app_rd)
+      |> Deferred.Or_error.ok_exn
+      >>= fun conn ->
+      Pipe.write_without_pushback app_wr request;
+      Pipe.close app_wr;
+      Pipe.drain_and_count app_rd >>= (fun c ->
+          assert (c > 0);
+          Pipe.closed app_rd)
+      >>= fun () ->
+      (Ssl.Connection.close conn;
+       Pipe.close_read app_rd;
+       conn
+       |> Ssl.Connection.closed
+       |> Deferred.Or_error.ok_exn
+       >>= fun () ->
+       Writer.close w >>= fun () ->
+       Reader.close r)
     ) >>= fun () ->
   loop ()
 
