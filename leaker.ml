@@ -5,13 +5,15 @@ open Async_ssl.Std
 let host = "127.0.0.1"
 let port = 4000
 
+let requests_per_compact = 100
+
 let request =
   "GET / HTTP/1.1\r\n\
    Host: localhost\r\n\
    Connection: close\r\n\
    \r\n"
 
-let rec loop () =
+let rec loop i =
   Tcp.with_connection (Tcp.to_host_and_port host port) (fun _ r w ->
       let net_to_ssl = Reader.pipe r in
       let ssl_to_net = Writer.pipe w in
@@ -34,10 +36,12 @@ let rec loop () =
        >>= fun () ->
        Writer.close w >>= fun () ->
        Reader.close r)
-    ) >>= fun () ->
-  loop ()
+    ) >>= (fun () ->
+      if i = 0 then Gc.compact ();
+      loop (succ i mod requests_per_compact)
+    )
 
 let () =
-  don't_wait_for (loop ());
+  don't_wait_for (loop 0);
   never_returns (Scheduler.go ())
 
