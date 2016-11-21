@@ -1,3 +1,6 @@
 PKG core
+PKG ssl
 PKG async
 PKG async_ssl
+S .
+B _build/**
